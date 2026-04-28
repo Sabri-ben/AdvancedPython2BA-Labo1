@@ -1,6 +1,6 @@
 """
-Tests for the Kamisado AI strategy.
-Run with:  pytest tests/ --cov=strategy --cov-report=term-missing
+Tests pour la stratégie IA du jeu Kamisado.
+Lancer avec : pytest tests/ --cov=strategy --cov-report=term-missing
 """
 
 import copy
@@ -11,18 +11,18 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from strategy import (
-    get_tile, get_cell_color, find_tile, is_blocked,
-    get_valid_moves, apply_move, evaluate, choose_move,
-    COLORS, DIRECTION, END_ROW,
+    obtenir_jeton, obtenir_couleur_case, trouver_jeton, est_bloque,
+    obtenir_coups_valides, appliquer_coup, evaluer, choisir_coup,
+    COULEURS, DIRECTION, LIGNE_FIN,
 )
 
 # ─────────────────────────────────────────────
-# Fixtures – sample boards
+# Fonctions utilitaires pour les tests
 # ─────────────────────────────────────────────
 
-def make_empty_board():
-    """8x8 board with correct square colors but no tiles."""
-    BOARD_COLORS = [
+def creer_plateau_vide():
+    """Plateau 8x8 avec les couleurs correctes mais sans aucun jeton."""
+    COULEURS_PLATEAU = [
         ["orange", "blue",   "purple", "pink",   "yellow", "red",    "green",  "brown"],
         ["red",    "orange", "pink",   "green",  "blue",   "yellow", "brown",  "purple"],
         ["green",  "pink",   "orange", "red",    "purple", "brown",  "yellow", "blue"],
@@ -32,286 +32,253 @@ def make_empty_board():
         ["purple", "brown",  "yellow", "blue",   "green",  "pink",   "orange", "red"],
         ["brown",  "green",  "red",    "yellow", "pink",   "purple", "blue",   "orange"],
     ]
-    return [[[color, None] for color in row] for row in BOARD_COLORS]
+    return [[[couleur, None] for couleur in ligne] for ligne in COULEURS_PLATEAU]
 
 
-def make_initial_state():
-    """Full initial game state (same token arrangement as game.py example)."""
-    board = make_empty_board()
-    # Place light tiles on row 0
-    light_colors = ["pink", "orange", "green", "red", "purple", "blue", "brown", "yellow"]
-    for c, color in enumerate(light_colors):
-        board[0][c][1] = [color, "light"]
-    # Place dark tiles on row 7
-    dark_colors = ["yellow", "green", "orange", "purple", "red", "brown", "blue", "pink"]
-    for c, color in enumerate(dark_colors):
-        board[7][c][1] = [color, "dark"]
+def creer_etat_initial():
+    """État initial complet du jeu avec les jetons en place."""
+    plateau = creer_plateau_vide()
+    couleurs_light = ["pink", "orange", "green", "red", "purple", "blue", "brown", "yellow"]
+    for c, couleur in enumerate(couleurs_light):
+        plateau[0][c][1] = [couleur, "light"]
+    couleurs_dark = ["yellow", "green", "orange", "purple", "red", "brown", "blue", "pink"]
+    for c, couleur in enumerate(couleurs_dark):
+        plateau[7][c][1] = [couleur, "dark"]
     return {
-        "board": board,
+        "board": plateau,
         "color": None,
         "current": 0,
-        "players": ["AI", "OPP"],
+        "players": ["IA", "ADV"],
     }
 
 
 # ─────────────────────────────────────────────
-# Tests – board helpers
+# Tests – obtenir_jeton
 # ─────────────────────────────────────────────
 
-class TestGetTile:
-    def test_returns_none_on_empty_cell(self):
-        board = make_empty_board()
-        assert get_tile(board, 3, 3) is None
+class TestObtenirJeton:
+    def test_retourne_none_si_case_vide(self):
+        plateau = creer_plateau_vide()
+        assert obtenir_jeton(plateau, 3, 3) is None
 
-    def test_returns_tile_when_present(self):
-        board = make_empty_board()
-        board[0][0][1] = ["orange", "light"]
-        assert get_tile(board, 0, 0) == ["orange", "light"]
-
-
-class TestGetCellColor:
-    def test_corner_top_left(self):
-        board = make_empty_board()
-        assert get_cell_color(board, 0, 0) == "orange"
-
-    def test_corner_bottom_right(self):
-        board = make_empty_board()
-        assert get_cell_color(board, 7, 7) == "orange"
+    def test_retourne_jeton_si_present(self):
+        plateau = creer_plateau_vide()
+        plateau[0][0][1] = ["orange", "light"]
+        assert obtenir_jeton(plateau, 0, 0) == ["orange", "light"]
 
 
-class TestFindTile:
-    def test_finds_existing_tile(self):
-        board = make_empty_board()
-        board[3][5][1] = ["red", "dark"]
-        assert find_tile(board, "red", "dark") == (3, 5)
+class TestObtenirCouleurCase:
+    def test_coin_haut_gauche(self):
+        plateau = creer_plateau_vide()
+        assert obtenir_couleur_case(plateau, 0, 0) == "orange"
 
-    def test_returns_none_when_not_found(self):
-        board = make_empty_board()
-        assert find_tile(board, "red", "dark") is None
-
-    def test_finds_light_tile(self):
-        board = make_empty_board()
-        board[0][2][1] = ["green", "light"]
-        assert find_tile(board, "green", "light") == (0, 2)
+    def test_coin_bas_droite(self):
+        plateau = creer_plateau_vide()
+        assert obtenir_couleur_case(plateau, 7, 7) == "orange"
 
 
-# ─────────────────────────────────────────────
-# Tests – is_blocked
-# ─────────────────────────────────────────────
+class TestTrouverJeton:
+    def test_trouve_jeton_existant(self):
+        plateau = creer_plateau_vide()
+        plateau[3][5][1] = ["red", "dark"]
+        assert trouver_jeton(plateau, "red", "dark") == (3, 5)
 
-class TestIsBlocked:
-    def test_dark_tile_blocked_by_full_row(self):
-        """Dark tile at row 7 with row 6 fully occupied → blocked."""
-        board = make_empty_board()
-        board[7][3][1] = ["yellow", "dark"]
+    def test_retourne_none_si_absent(self):
+        plateau = creer_plateau_vide()
+        assert trouver_jeton(plateau, "red", "dark") is None
+
+    def test_trouve_jeton_light(self):
+        plateau = creer_plateau_vide()
+        plateau[0][2][1] = ["green", "light"]
+        assert trouver_jeton(plateau, "green", "light") == (0, 2)
+
+
+class TestEstBloque:
+    def test_jeton_dark_bloque_par_ligne_pleine(self):
+        plateau = creer_plateau_vide()
+        plateau[7][3][1] = ["yellow", "dark"]
         for c in range(8):
-            board[6][c][1] = ["orange", "light"]
-        assert is_blocked(board, 7, 3) is True
+            plateau[6][c][1] = ["orange", "light"]
+        assert est_bloque(plateau, 7, 3) is True
 
-    def test_dark_tile_not_blocked(self):
-        """Dark tile at row 7 with empty row 6 → not blocked."""
-        board = make_empty_board()
-        board[7][3][1] = ["yellow", "dark"]
-        assert is_blocked(board, 7, 3) is False
+    def test_jeton_dark_pas_bloque(self):
+        plateau = creer_plateau_vide()
+        plateau[7][3][1] = ["yellow", "dark"]
+        assert est_bloque(plateau, 7, 3) is False
 
-    def test_light_tile_not_blocked(self):
-        board = make_empty_board()
-        board[0][4][1] = ["purple", "light"]
-        assert is_blocked(board, 0, 4) is False
+    def test_jeton_light_pas_bloque(self):
+        plateau = creer_plateau_vide()
+        plateau[0][4][1] = ["purple", "light"]
+        assert est_bloque(plateau, 0, 4) is False
 
-    def test_tile_at_edge_column_not_blocked(self):
-        """Tile in column 0 – only two directions to check."""
-        board = make_empty_board()
-        board[7][0][1] = ["brown", "dark"]
-        assert is_blocked(board, 7, 0) is False
+    def test_jeton_en_colonne_bord_pas_bloque(self):
+        plateau = creer_plateau_vide()
+        plateau[7][0][1] = ["brown", "dark"]
+        assert est_bloque(plateau, 7, 0) is False
 
 
-# ─────────────────────────────────────────────
-# Tests – get_valid_moves
-# ─────────────────────────────────────────────
+class TestObtenirCoupsValides:
+    def test_jeton_dark_a_des_coups(self):
+        plateau = creer_plateau_vide()
+        plateau[7][4][1] = ["red", "dark"]
+        coups = obtenir_coups_valides(plateau, "red", "dark")
+        assert len(coups) > 0
+        for coup in coups:
+            assert coup[1][0] < 7
 
-class TestGetValidMoves:
-    def test_dark_tile_has_moves_on_open_board(self):
-        board = make_empty_board()
-        board[7][4][1] = ["red", "dark"]
-        moves = get_valid_moves(board, "red", "dark")
-        assert len(moves) > 0
-        # All destinations must have row < 7 (dark goes up)
-        for move in moves:
-            assert move[1][0] < 7
+    def test_jeton_light_a_des_coups(self):
+        plateau = creer_plateau_vide()
+        plateau[0][2][1] = ["green", "light"]
+        coups = obtenir_coups_valides(plateau, "green", "light")
+        assert len(coups) > 0
+        for coup in coups:
+            assert coup[1][0] > 0
 
-    def test_light_tile_has_moves_on_open_board(self):
-        board = make_empty_board()
-        board[0][2][1] = ["green", "light"]
-        moves = get_valid_moves(board, "green", "light")
-        assert len(moves) > 0
-        for move in moves:
-            assert move[1][0] > 0
-
-    def test_blocked_tile_returns_pass_move(self):
-        board = make_empty_board()
-        board[7][3][1] = ["yellow", "dark"]
+    def test_jeton_bloque_retourne_coup_passe(self):
+        plateau = creer_plateau_vide()
+        plateau[7][3][1] = ["yellow", "dark"]
         for c in range(8):
-            board[6][c][1] = ["orange", "light"]
-        moves = get_valid_moves(board, "yellow", "dark")
-        assert len(moves) == 1
-        assert moves[0][0] == moves[0][1]   # pass move: src == dst
+            plateau[6][c][1] = ["orange", "light"]
+        coups = obtenir_coups_valides(plateau, "yellow", "dark")
+        assert len(coups) == 1
+        assert coups[0][0] == coups[0][1]
 
-    def test_tile_blocked_by_other_tiles_in_path(self):
-        board = make_empty_board()
-        board[7][4][1] = ["red", "dark"]
-        board[6][4][1] = ["blue", "light"]   # blocks straight ahead
-        moves = get_valid_moves(board, "red", "dark")
-        destinations = [m[1] for m in moves]
+    def test_jeton_bloque_par_autre_jeton(self):
+        plateau = creer_plateau_vide()
+        plateau[7][4][1] = ["red", "dark"]
+        plateau[6][4][1] = ["blue", "light"]
+        coups = obtenir_coups_valides(plateau, "red", "dark")
+        destinations = [c[1] for c in coups]
         assert [6, 4] not in destinations
 
-    def test_returns_empty_when_tile_not_found(self):
-        board = make_empty_board()
-        moves = get_valid_moves(board, "orange", "dark")
-        assert moves == []
+    def test_retourne_vide_si_jeton_introuvable(self):
+        plateau = creer_plateau_vide()
+        coups = obtenir_coups_valides(plateau, "orange", "dark")
+        assert coups == []
 
-    def test_diagonal_moves_included(self):
-        board = make_empty_board()
-        board[5][4][1] = ["red", "dark"]
-        moves = get_valid_moves(board, "red", "dark")
-        cols = [m[1][1] for m in moves]
-        # Should include moves to the left and right diagonals
-        assert len(set(cols)) > 1
-
-
-# ─────────────────────────────────────────────
-# Tests – apply_move
-# ─────────────────────────────────────────────
-
-class TestApplyMove:
-    def test_tile_moves_to_destination(self):
-        board = make_empty_board()
-        board[7][4][1] = ["red", "dark"]
-        new_board, next_color, won = apply_move(board, [[7, 4], [5, 4]], "dark")
-        assert get_tile(new_board, 5, 4) == ["red", "dark"]
-        assert get_tile(new_board, 7, 4) is None
-
-    def test_original_board_not_mutated(self):
-        board = make_empty_board()
-        board[7][4][1] = ["red", "dark"]
-        original_tile = copy.deepcopy(get_tile(board, 7, 4))
-        apply_move(board, [[7, 4], [5, 4]], "dark")
-        assert get_tile(board, 7, 4) == original_tile
-
-    def test_won_when_dark_reaches_row_0(self):
-        board = make_empty_board()
-        board[1][3][1] = ["yellow", "dark"]
-        _, _, won = apply_move(board, [[1, 3], [0, 3]], "dark")
-        assert won is True
-
-    def test_won_when_light_reaches_row_7(self):
-        board = make_empty_board()
-        board[6][2][1] = ["orange", "light"]
-        _, _, won = apply_move(board, [[6, 2], [7, 2]], "light")
-        assert won is True
-
-    def test_not_won_on_normal_move(self):
-        board = make_empty_board()
-        board[7][4][1] = ["red", "dark"]
-        _, _, won = apply_move(board, [[7, 4], [5, 4]], "dark")
-        assert won is False
-
-    def test_next_color_matches_destination_square(self):
-        board = make_empty_board()
-        board[7][4][1] = ["red", "dark"]
-        _, next_color, _ = apply_move(board, [[7, 4], [5, 4]], "dark")
-        assert next_color == get_cell_color(board, 5, 4)
+    def test_coups_diagonaux_inclus(self):
+        plateau = creer_plateau_vide()
+        plateau[5][4][1] = ["red", "dark"]
+        coups = obtenir_coups_valides(plateau, "red", "dark")
+        colonnes = [c[1][1] for c in coups]
+        assert len(set(colonnes)) > 1
 
 
-# ─────────────────────────────────────────────
-# Tests – evaluate
-# ─────────────────────────────────────────────
+class TestAppliquerCoup:
+    def test_jeton_se_deplace_vers_destination(self):
+        plateau = creer_plateau_vide()
+        plateau[7][4][1] = ["red", "dark"]
+        nouveau_plateau, _, _ = appliquer_coup(plateau, [[7, 4], [5, 4]], "dark")
+        assert obtenir_jeton(nouveau_plateau, 5, 4) == ["red", "dark"]
+        assert obtenir_jeton(nouveau_plateau, 7, 4) is None
 
-class TestEvaluate:
-    def test_advanced_dark_tile_scores_higher(self):
-        board1 = make_empty_board()
-        board1[7][4][1] = ["red", "dark"]   # start position
-        board2 = make_empty_board()
-        board2[3][4][1] = ["red", "dark"]   # advanced position
-        assert evaluate(board2, "dark") > evaluate(board1, "dark")
+    def test_plateau_original_non_modifie(self):
+        plateau = creer_plateau_vide()
+        plateau[7][4][1] = ["red", "dark"]
+        jeton_original = copy.deepcopy(obtenir_jeton(plateau, 7, 4))
+        appliquer_coup(plateau, [[7, 4], [5, 4]], "dark")
+        assert obtenir_jeton(plateau, 7, 4) == jeton_original
 
-    def test_opponent_advancement_lowers_score(self):
-        board1 = make_empty_board()
-        board1[0][4][1] = ["purple", "light"]   # opponent at start
-        board2 = make_empty_board()
-        board2[4][4][1] = ["purple", "light"]   # opponent advanced
-        assert evaluate(board1, "dark") > evaluate(board2, "dark")
+    def test_victoire_dark_atteint_ligne_0(self):
+        plateau = creer_plateau_vide()
+        plateau[1][3][1] = ["yellow", "dark"]
+        _, _, victoire = appliquer_coup(plateau, [[1, 3], [0, 3]], "dark")
+        assert victoire is True
 
-    def test_central_column_preferred(self):
-        board1 = make_empty_board()
-        board1[5][0][1] = ["blue", "dark"]   # edge column
-        board2 = make_empty_board()
-        board2[5][3][1] = ["blue", "dark"]   # central column
-        assert evaluate(board2, "dark") > evaluate(board1, "dark")
+    def test_victoire_light_atteint_ligne_7(self):
+        plateau = creer_plateau_vide()
+        plateau[6][2][1] = ["orange", "light"]
+        _, _, victoire = appliquer_coup(plateau, [[6, 2], [7, 2]], "light")
+        assert victoire is True
 
-    def test_symmetric_empty_board_scores_zero(self):
-        board = make_empty_board()
-        assert evaluate(board, "dark") == 0
+    def test_pas_de_victoire_coup_normal(self):
+        plateau = creer_plateau_vide()
+        plateau[7][4][1] = ["red", "dark"]
+        _, _, victoire = appliquer_coup(plateau, [[7, 4], [5, 4]], "dark")
+        assert victoire is False
+
+    def test_couleur_suivante_correspond_a_case_arrivee(self):
+        plateau = creer_plateau_vide()
+        plateau[7][4][1] = ["red", "dark"]
+        _, couleur_suivante, _ = appliquer_coup(plateau, [[7, 4], [5, 4]], "dark")
+        assert couleur_suivante == obtenir_couleur_case(plateau, 5, 4)
 
 
-# ─────────────────────────────────────────────
-# Tests – choose_move (integration)
-# ─────────────────────────────────────────────
+class TestEvaluer:
+    def test_jeton_avance_score_plus_eleve(self):
+        plateau1 = creer_plateau_vide()
+        plateau1[7][4][1] = ["red", "dark"]
+        plateau2 = creer_plateau_vide()
+        plateau2[3][4][1] = ["red", "dark"]
+        assert evaluer(plateau2, "dark") > evaluer(plateau1, "dark")
 
-class TestChooseMove:
-    def test_returns_a_move(self):
-        state = make_initial_state()
-        move = choose_move(state, my_index=0)
-        assert move is not None
-        assert len(move) == 2
-        assert len(move[0]) == 2
-        assert len(move[1]) == 2
+    def test_avancement_adversaire_baisse_score(self):
+        plateau1 = creer_plateau_vide()
+        plateau1[0][4][1] = ["purple", "light"]
+        plateau2 = creer_plateau_vide()
+        plateau2[4][4][1] = ["purple", "light"]
+        assert evaluer(plateau1, "dark") > evaluer(plateau2, "dark")
 
-    def test_move_coordinates_in_range(self):
-        state = make_initial_state()
-        move = choose_move(state, my_index=0)
-        for pos in move:
+    def test_colonne_centrale_preferee(self):
+        plateau1 = creer_plateau_vide()
+        plateau1[5][0][1] = ["blue", "dark"]
+        plateau2 = creer_plateau_vide()
+        plateau2[5][3][1] = ["blue", "dark"]
+        assert evaluer(plateau2, "dark") > evaluer(plateau1, "dark")
+
+    def test_plateau_vide_score_zero(self):
+        plateau = creer_plateau_vide()
+        assert evaluer(plateau, "dark") == 0
+
+
+class TestChoisirCoup:
+    def test_retourne_un_coup(self):
+        etat = creer_etat_initial()
+        coup = choisir_coup(etat, mon_index=0)
+        assert coup is not None
+        assert len(coup) == 2
+        assert len(coup[0]) == 2
+        assert len(coup[1]) == 2
+
+    def test_coordonnees_dans_les_limites(self):
+        etat = creer_etat_initial()
+        coup = choisir_coup(etat, mon_index=0)
+        for pos in coup:
             assert 0 <= pos[0] <= 7
             assert 0 <= pos[1] <= 7
 
-    def test_move_source_has_correct_kind(self):
-        """The source tile must belong to the current player."""
-        state = make_initial_state()
-        move = choose_move(state, my_index=0)
-        board = state["board"]
-        sr, sc = move[0]
-        tile = get_tile(board, sr, sc)
-        assert tile is not None
-        assert tile[1] == "dark"   # player 0 is dark
+    def test_source_appartient_au_joueur_courant(self):
+        etat = creer_etat_initial()
+        coup = choisir_coup(etat, mon_index=0)
+        plateau = etat["board"]
+        sr, sc = coup[0]
+        jeton = obtenir_jeton(plateau, sr, sc)
+        assert jeton is not None
+        assert jeton[1] == "dark"
 
-    def test_choose_move_player_1(self):
-        """Player 1 (light) should also return a valid move."""
-        state = make_initial_state()
-        state["current"] = 1
-        state["color"] = "orange"   # simulate a color constraint
-        move = choose_move(state, my_index=1)
-        assert move is not None
+    def test_choisir_coup_joueur_1(self):
+        etat = creer_etat_initial()
+        etat["current"] = 1
+        etat["color"] = "orange"
+        coup = choisir_coup(etat, mon_index=1)
+        assert coup is not None
 
-    def test_winning_move_chosen(self):
-        """AI should pick the winning move when available."""
-        board = make_empty_board()
-        # Dark tile one step from winning
-        board[1][4][1] = ["yellow", "dark"]
-        state = {
-            "board": board,
+    def test_coup_gagnant_choisi(self):
+        plateau = creer_plateau_vide()
+        plateau[1][4][1] = ["yellow", "dark"]
+        etat = {
+            "board": plateau,
             "color": "yellow",
             "current": 0,
-            "players": ["AI", "OPP"],
+            "players": ["IA", "ADV"],
         }
-        move = choose_move(state, my_index=0)
-        assert move[1][0] == 0   # should move to row 0 (win)
+        coup = choisir_coup(etat, mon_index=0)
+        assert coup[1][0] == 0
 
-    def test_no_bad_move_on_initial_state(self):
-        """Source and destination must differ (no illegal same-square move unless blocked)."""
-        state = make_initial_state()
-        move = choose_move(state, my_index=0)
-        board = state["board"]
-        sr, sc = move[0]
-        er, ec = move[1]
-        # On initial state nothing is blocked so source != destination
+    def test_pas_de_coup_illegal_etat_initial(self):
+        etat = creer_etat_initial()
+        coup = choisir_coup(etat, mon_index=0)
+        sr, sc = coup[0]
+        er, ec = coup[1]
         assert [sr, sc] != [er, ec]
+

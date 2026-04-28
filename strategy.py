@@ -1,16 +1,10 @@
-"""
-Kamisado AI Strategy - Minimax with Alpha-Beta Pruning
-"""
-
 import copy
 
-# ─────────────────────────────────────────────
-# Constants (mirror game.py so we stay independent)
-# ─────────────────────────────────────────────
+# Les 8 couleurs possibles des jetons et des cases
+COULEURS = ["orange", "blue", "purple", "pink", "yellow", "red", "green", "brown"]
 
-COLORS = ["orange", "blue", "purple", "pink", "yellow", "red", "green", "brown"]
-
-BOARD_COLORS = [
+# Couleurs fixes de chaque case du plateau (ne changent jamais)
+COULEURS_PLATEAU = [
     ["orange", "blue",   "purple", "pink",   "yellow", "red",    "green",  "brown"],
     ["red",    "orange", "pink",   "green",  "blue",   "yellow", "brown",  "purple"],
     ["green",  "pink",   "orange", "red",    "purple", "brown",  "yellow", "blue"],
@@ -21,279 +15,295 @@ BOARD_COLORS = [
     ["brown",  "green",  "red",    "yellow", "pink",   "purple", "blue",   "orange"],
 ]
 
-# dark moves toward row 0, light moves toward row 7
+# Direction de déplacement : "dark" va vers la ligne 0, "light" vers la ligne 7
 DIRECTION = {"dark": -1, "light": 1}
-END_ROW   = {"dark": 0,  "light": 7}
-START_ROW = {"dark": 7,  "light": 0}
 
-TILE_IDX  = 1
-COLOR_IDX = 0
-KIND_IDX  = 1
+# Ligne de victoire pour chaque type de jeton
+LIGNE_FIN = {"dark": 0, "light": 7}
 
-MINIMAX_DEPTH = 3   # increase for stronger play (slower)
+# Ligne de départ pour chaque type de jeton
+LIGNE_DEPART = {"dark": 7, "light": 0}
 
+# Index dans une cellule : board[r][c] = [couleur_case, jeton]
+# Index dans un jeton    : jeton = [couleur_jeton, type_jeton]
+IDX_JETON   = 1
+IDX_COULEUR = 0
+IDX_TYPE    = 1
 
-# ─────────────────────────────────────────────
-# Board helpers
-# ─────────────────────────────────────────────
-
-def get_tile(board, r, c):
-    """Return the tile at (r, c) or None."""
-    return board[r][c][TILE_IDX]
+# Profondeur de recherche Minimax (nombre de coups regardés à l'avance)
+PROFONDEUR_MINIMAX = 3
 
 
-def get_cell_color(board, r, c):
-    """Return the board-square color at (r, c)."""
-    return board[r][c][COLOR_IDX]
+def obtenir_jeton(plateau, r, c):
+    """Retourne le jeton sur la case (r, c), ou None si vide."""
+    return plateau[r][c][IDX_JETON]
 
 
-def find_tile(board, color, kind):
-    """Find the position (r, c) of a tile by color and kind."""
+def obtenir_couleur_case(plateau, r, c):
+    """Retourne la couleur fixe de la case (r, c)."""
+    return plateau[r][c][IDX_COULEUR]
+
+
+def trouver_jeton(plateau, couleur, type_jeton):
+    """
+    Cherche le jeton de couleur et type donnés sur tout le plateau.
+    Retourne (r, c) si trouvé, None sinon.
+    """
     for r in range(8):
         for c in range(8):
-            tile = get_tile(board, r, c)
-            if tile is not None and tile[COLOR_IDX] == color and tile[KIND_IDX] == kind:
+            jeton = obtenir_jeton(plateau, r, c)
+            if jeton is not None and jeton[IDX_COULEUR] == couleur and jeton[IDX_TYPE] == type_jeton:
                 return r, c
     return None
 
 
-def is_blocked(board, r, c):
+def est_bloque(plateau, r, c):
     """
-    Return True if the tile at (r, c) cannot move anywhere.
-    A tile is blocked when every cell in the row ahead (and diagonals) is occupied.
+    Vérifie si le jeton sur la case (r, c) est complètement bloqué.
+    Un jeton est bloqué quand toutes les cases devant lui sont occupées.
+    Si bloqué → le joueur doit jouer un coup passe (rester sur place).
     """
-    kind = get_tile(board, r, c)[KIND_IDX]
-    dr = DIRECTION[kind]
-    next_row = r + dr
-    if next_row < 0 or next_row > 7:
-        return True   # already on winning row – handled elsewhere
+    type_jeton = obtenir_jeton(plateau, r, c)[IDX_TYPE]
+    dr = DIRECTION[type_jeton]
+    ligne_suivante = r + dr
+
+    if ligne_suivante < 0 or ligne_suivante > 7:
+        return True
+
     for dc in (-1, 0, 1):
         nc = c + dc
-        if 0 <= nc <= 7 and get_tile(board, next_row, nc) is None:
+        if 0 <= nc <= 7 and obtenir_jeton(plateau, ligne_suivante, nc) is None:
             return False
+
     return True
 
 
-def get_valid_moves(board, color, kind):
+def obtenir_coups_valides(plateau, couleur, type_jeton):
     """
-    Return all legal moves for the tile of the given (color, kind).
-    Each move is [[src_r, src_c], [dst_r, dst_c]].
-    Returns [[[r,c],[r,c]]] with src==dst if the tile is blocked.
+    Calcule tous les coups valides pour le jeton (couleur, type_jeton).
+
+    Règles de déplacement :
+      - Avance tout droit ou en diagonale (jamais en arrière)
+      - Peut avancer de plusieurs cases à la fois
+      - Ne peut pas passer par-dessus un autre jeton
+      - Si bloqué → coup passe (source == destination)
+
+    Retourne une liste de coups [[ligne_src, col_src], [ligne_dst, col_dst]]
     """
-    pos = find_tile(board, color, kind)
+    pos = trouver_jeton(plateau, couleur, type_jeton)
     if pos is None:
         return []
 
     r, c = pos
-    dr = DIRECTION[kind]
-    moves = []
+    dr = DIRECTION[type_jeton]
+    coups = []
 
-    # three possible directions: straight ahead, diagonal-left, diagonal-right
-    for dc in (0, -1, 1):
+    for dc in (0, -1, 1):  # tout droit, diagonale gauche, diagonale droite
         nr, nc = r + dr, c + dc
+
         while 0 <= nr <= 7 and 0 <= nc <= 7:
-            if get_tile(board, nr, nc) is not None:
-                break   # path blocked
-            moves.append([[r, c], [nr, nc]])
+            if obtenir_jeton(plateau, nr, nc) is not None:
+                break  # chemin bloqué
+
+            coups.append([[r, c], [nr, nc]])
             nr += dr
             nc += dc
 
-    if not moves:
-        # tile is blocked: pass move
-        moves.append([[r, c], [r, c]])
+    if not coups:
+        coups.append([[r, c], [r, c]])  # coup passe
 
-    return moves
+    return coups
 
 
-def apply_move(board, move, kind):
+def appliquer_coup(plateau, coup, type_jeton):
     """
-    Apply a move on a deep copy of the board and return
-    (new_board, next_color, won).
-    next_color is the board-square color of the destination cell.
-    won is True if the moving tile has reached the end row.
+    Applique un coup sur une copie du plateau (l'original n'est pas modifié).
+    Essentiel pour Minimax : on simule sans changer le vrai état.
+
+    Retourne :
+        nouveau_plateau  : plateau après le coup
+        couleur_suivante : couleur de la case d'arrivée (impose le prochain jeton)
+        victoire         : True si le jeton atteint la ligne de victoire
     """
-    new_board = copy.deepcopy(board)
-    (sr, sc), (er, ec) = move
+    nouveau_plateau = copy.deepcopy(plateau)
+    (sr, sc), (er, ec) = coup
 
-    tile = new_board[sr][sc][TILE_IDX]
-    new_board[er][ec][TILE_IDX] = tile
-    new_board[sr][sc][TILE_IDX] = None
+    jeton = nouveau_plateau[sr][sc][IDX_JETON]
+    nouveau_plateau[er][ec][IDX_JETON] = jeton
+    nouveau_plateau[sr][sc][IDX_JETON] = None
 
-    next_color = get_cell_color(new_board, er, ec)
-    won = (er == END_ROW[kind])
-    return new_board, next_color, won
+    couleur_suivante = obtenir_couleur_case(nouveau_plateau, er, ec)
+    victoire = (er == LIGNE_FIN[type_jeton])
+
+    return nouveau_plateau, couleur_suivante, victoire
 
 
-# ─────────────────────────────────────────────
-# Evaluation heuristic
-# ─────────────────────────────────────────────
-
-def evaluate(board, my_kind):
+def evaluer(plateau, mon_type):
     """
-    Static evaluation of the board from the perspective of my_kind.
-    Higher is better for my_kind.
+    Donne un score numérique à une position du plateau.
+    Score positif = bonne position pour nous.
+    Score négatif = mauvaise position pour nous.
 
-    Heuristic components:
-      1. Row advancement  – reward being closer to the opponent's end row.
-      2. Centrality       – central columns are more flexible.
-      3. Opponent penalty – penalise the opponent's advancement.
+    Critères :
+      1. Avancement (x10) : plus le jeton est proche de la ligne adverse, mieux c'est
+      2. Centralité (x2)  : les colonnes centrales offrent plus de liberté
+      3. Adversaire       : le score adverse est soustrait du nôtre
     """
-    opp_kind = "light" if my_kind == "dark" else "dark"
     score = 0
 
     for r in range(8):
         for c in range(8):
-            tile = get_tile(board, r, c)
-            if tile is None:
+            jeton = obtenir_jeton(plateau, r, c)
+            if jeton is None:
                 continue
-            t_color, t_kind = tile
 
-            # advancement: dark goes toward row 0, light toward row 7
-            if t_kind == "dark":
-                advancement = 7 - r   # 0 (start) → 7 (end)
+            couleur_jeton, type_jeton = jeton
+
+            if type_jeton == "dark":
+                avancement = 7 - r  # dark part de 7, va vers 0
             else:
-                advancement = r       # 0 (start) → 7 (end)
+                avancement = r      # light part de 0, va vers 7
 
-            centrality = 3.5 - abs(c - 3.5)   # 0..3.5
+            centralite = 3.5 - abs(c - 3.5)  # 0 en bord, 3.5 au centre
 
-            tile_score = advancement * 10 + centrality * 2
+            score_jeton = avancement * 10 + centralite * 2
 
-            if t_kind == my_kind:
-                score += tile_score
+            if type_jeton == mon_type:
+                score += score_jeton
             else:
-                score -= tile_score
+                score -= score_jeton
 
     return score
 
 
-# ─────────────────────────────────────────────
-# Minimax with Alpha-Beta pruning
-# ─────────────────────────────────────────────
-
-def minimax(board, depth, alpha, beta, is_maximising, my_kind, current_color, current_kind):
+def minimax(plateau, profondeur, alpha, beta, maximisant, mon_type, couleur_courante, type_courant):
     """
-    Minimax with alpha-beta pruning.
+    Algorithme Minimax avec élagage Alpha-Beta.
 
-    Parameters
-    ----------
-    board            : current board state
-    depth            : remaining search depth
-    alpha, beta      : pruning bounds
-    is_maximising    : True when it is our turn
-    my_kind          : the kind ("dark"/"light") of our AI
-    current_color    : color of the tile that must be played (None = any)
-    current_kind     : kind of the player whose turn it is
+    Notre tour (maximisant)   → on cherche le coup qui MAXIMISE notre score.
+    Tour adverse (minimisant) → l'adversaire cherche à MINIMISER notre score.
 
-    Returns
-    -------
-    (score, best_move)
+    Alpha-Beta : évite d'explorer des branches inutiles.
+      - alpha : meilleur score garanti pour nous
+      - beta  : meilleur score garanti pour l'adversaire
+      - Si beta <= alpha → on arrête d'explorer cette branche
+
+    Retourne : (score, meilleur_coup)
     """
-    opp_kind = "light" if current_kind == "dark" else "dark"
+    type_adverse = "light" if type_courant == "dark" else "dark"
 
-    # Determine which tile must be moved
-    if current_color is None:
-        # First move: any tile of current_kind can be chosen
-        # We try all tiles of current_kind
-        all_moves = []
-        for color in COLORS:
-            pos = find_tile(board, color, current_kind)
+    if couleur_courante is None:
+        # Premier coup : on peut jouer n'importe quel jeton
+        tous_les_coups = []
+        for couleur in COULEURS:
+            pos = trouver_jeton(plateau, couleur, type_courant)
             if pos is not None:
-                all_moves.extend(get_valid_moves(board, color, current_kind))
+                tous_les_coups.extend(obtenir_coups_valides(plateau, couleur, type_courant))
     else:
-        all_moves = get_valid_moves(board, current_color, current_kind)
+        # Coup normal : on joue le jeton de la couleur imposée
+        tous_les_coups = obtenir_coups_valides(plateau, couleur_courante, type_courant)
 
-    # Terminal: no moves available
-    if not all_moves or depth == 0:
-        return evaluate(board, my_kind), None
+    # Cas de base : profondeur 0 ou aucun coup → on évalue la position
+    if not tous_les_coups or profondeur == 0:
+        return evaluer(plateau, mon_type), None
 
-    best_move = None
+    meilleur_coup = None
 
-    if is_maximising:
-        best_score = float("-inf")
-        for move in all_moves:
-            new_board, next_color, won = apply_move(board, move, current_kind)
-            if won:
-                return 10000 + depth * 100, move   # winning move
+    if maximisant:
+        meilleur_score = float("-inf")
+
+        for coup in tous_les_coups:
+            nouveau_plateau, couleur_suivante, victoire = appliquer_coup(plateau, coup, type_courant)
+
+            if victoire:
+                return 10000 + profondeur * 100, coup  # coup gagnant
+
             score, _ = minimax(
-                new_board, depth - 1, alpha, beta,
-                False, my_kind, next_color, opp_kind
+                nouveau_plateau, profondeur - 1, alpha, beta,
+                False, mon_type, couleur_suivante, type_adverse
             )
-            if score > best_score:
-                best_score = score
-                best_move = move
-            alpha = max(alpha, best_score)
+
+            if score > meilleur_score:
+                meilleur_score = score
+                meilleur_coup = coup
+
+            alpha = max(alpha, meilleur_score)
             if beta <= alpha:
-                break   # β-cutoff
-        return best_score, best_move
+                break  # élagage Beta
+
+        return meilleur_score, meilleur_coup
 
     else:
-        best_score = float("inf")
-        for move in all_moves:
-            new_board, next_color, won = apply_move(board, move, current_kind)
-            if won:
-                return -10000 - depth * 100, move   # opponent wins
+        meilleur_score = float("inf")
+
+        for coup in tous_les_coups:
+            nouveau_plateau, couleur_suivante, victoire = appliquer_coup(plateau, coup, type_courant)
+
+            if victoire:
+                return -10000 - profondeur * 100, coup  # l'adversaire gagne
+
             score, _ = minimax(
-                new_board, depth - 1, alpha, beta,
-                True, my_kind, next_color, opp_kind
+                nouveau_plateau, profondeur - 1, alpha, beta,
+                True, mon_type, couleur_suivante, type_adverse
             )
-            if score < best_score:
-                best_score = score
-                best_move = move
-            beta = min(beta, best_score)
+
+            if score < meilleur_score:
+                meilleur_score = score
+                meilleur_coup = coup
+
+            beta = min(beta, meilleur_score)
             if beta <= alpha:
-                break   # α-cutoff
-        return best_score, best_move
+                break  # élagage Alpha
+
+        return meilleur_score, meilleur_coup
 
 
-# ─────────────────────────────────────────────
-# Public API – called by client.py
-# ─────────────────────────────────────────────
-
-def choose_move(state, my_index):
+def choisir_coup(etat, mon_index):
     """
-    Choose the best move given the current game state.
+    Fonction principale appelée par le client à chaque tour.
+    Reçoit l'état du jeu et retourne le meilleur coup à jouer.
 
-    Parameters
-    ----------
-    state    : dict – the game state received from the server
-    my_index : int  – our player index (0 or 1)
+    Paramètres :
+        etat      : dictionnaire reçu du serveur avec :
+                    - "board"   : le plateau actuel
+                    - "color"   : couleur du jeton à jouer (None = premier coup)
+                    - "current" : index du joueur dont c'est le tour
+                    - "players" : liste des noms des joueurs
+        mon_index : notre index dans la liste des joueurs (0 ou 1)
 
-    Returns
-    -------
-    move : [[src_r, src_c], [dst_r, dst_c]]
+    Retourne :
+        coup : [[ligne_source, col_source], [ligne_dest, col_dest]]
     """
-    board         = state["board"]
-    current_color = state["color"]       # None on first move
-    current       = state["current"]     # index of player to move
+    plateau          = etat["board"]
+    couleur_courante = etat["color"]
+    courant          = etat["current"]
 
-    # Determine kinds: player 0 is always "dark", player 1 is "light"
-    # (first player uses dark tiles as per game rules)
-    my_kind      = "dark"  if my_index == 0 else "light"
-    current_kind = "dark"  if current  == 0 else "light"
+    mon_type     = "dark" if mon_index == 0 else "light"
+    type_courant = "dark" if courant   == 0 else "light"
 
-    is_my_turn = (current == my_index)
+    c_est_mon_tour = (courant == mon_index)
 
-    _, move = minimax(
-        board,
-        depth        = MINIMAX_DEPTH,
-        alpha        = float("-inf"),
-        beta         = float("inf"),
-        is_maximising= is_my_turn,
-        my_kind      = my_kind,
-        current_color= current_color,
-        current_kind = current_kind,
+    _, coup = minimax(
+        plateau,
+        profondeur       = PROFONDEUR_MINIMAX,
+        alpha            = float("-inf"),
+        beta             = float("inf"),
+        maximisant       = c_est_mon_tour,
+        mon_type         = mon_type,
+        couleur_courante = couleur_courante,
+        type_courant     = type_courant,
     )
 
-    # Fallback safety: if minimax returns None, play first valid move
-    if move is None:
-        if current_color is None:
-            for color in COLORS:
-                moves = get_valid_moves(board, color, current_kind)
-                if moves:
-                    move = moves[0]
+    # Sécurité : si Minimax ne trouve rien, on joue le premier coup valide
+    if coup is None:
+        if couleur_courante is None:
+            for couleur in COULEURS:
+                coups = obtenir_coups_valides(plateau, couleur, type_courant)
+                if coups:
+                    coup = coups[0]
                     break
         else:
-            moves = get_valid_moves(board, current_color, current_kind)
-            move = moves[0] if moves else None
+            coups = obtenir_coups_valides(plateau, couleur_courante, type_courant)
+            coup = coups[0] if coups else None
 
-    return move
+    return coup

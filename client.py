@@ -1,119 +1,120 @@
 """
-Kamisado AI Client
-Connects to the game server, registers, and plays using the Minimax strategy.
+Client IA Kamisado
+Se connecte au serveur de parties et joue en utilisant la stratégie Minimax.
 
-Usage:
-    python client.py <server_url> <player_name>
+Utilisation :
+    python client.py <url_serveur> <nom_joueur>
 
-Example:
-    python client.py http://192.168.1.42:5000 MyAI
+Exemple :
+    python client.py http://192.168.1.42:5000 MonIA
 """
 
 import sys
 import time
 import requests
-from strategy import choose_move
+from strategy import choisir_coup
 
 # ─────────────────────────────────────────────
 # Configuration
 # ─────────────────────────────────────────────
 
-DEFAULT_SERVER = "http://localhost:5000"
-DEFAULT_NAME   = "MinimaxAI"
-POLL_INTERVAL  = 0.5   # seconds between state polls
+SERVEUR_DEFAUT     = "http://localhost:5000"
+NOM_DEFAUT         = "MinimaxIA"
+INTERVALLE_ATTENTE = 0.5  # secondes entre chaque vérification de l'état
 
 
 # ─────────────────────────────────────────────
-# Server communication helpers
+# Communication avec le serveur
 # ─────────────────────────────────────────────
 
-def register(server_url: str, player_name: str) -> dict:
+def s_inscrire(url_serveur: str, nom_joueur: str) -> dict:
     """
-    Register this AI with the game server.
-    Returns the registration info (game_id, player_index, …).
+    Inscrit l'IA auprès du serveur de parties.
+    Retourne les informations d'inscription (game_id, index du joueur, ...).
     """
-    url = f"{server_url}/register"
-    response = requests.post(url, json={"name": player_name})
-    response.raise_for_status()
-    data = response.json()
-    print(f"[register] Registered as '{player_name}' → {data}")
-    return data
+    url = f"{url_serveur}/register"
+    reponse = requests.post(url, json={"name": nom_joueur})
+    reponse.raise_for_status()
+    donnees = reponse.json()
+    print(f"[inscription] Inscrit en tant que '{nom_joueur}' → {donnees}")
+    return donnees
 
 
-def get_state(server_url: str, game_id: str) -> dict:
-    """Fetch the current game state from the server."""
-    url = f"{server_url}/state/{game_id}"
-    response = requests.get(url)
-    response.raise_for_status()
-    return response.json()
+def obtenir_etat(url_serveur: str, game_id: str) -> dict:
+    """Récupère l'état actuel de la partie depuis le serveur."""
+    url = f"{url_serveur}/state/{game_id}"
+    reponse = requests.get(url)
+    reponse.raise_for_status()
+    return reponse.json()
 
 
-def send_move(server_url: str, game_id: str, move: list) -> dict:
-    """Send our chosen move to the server."""
-    url = f"{server_url}/move/{game_id}"
-    response = requests.post(url, json=move)
-    response.raise_for_status()
-    return response.json()
+def envoyer_coup(url_serveur: str, game_id: str, coup: list) -> dict:
+    """Envoie le coup choisi au serveur."""
+    url = f"{url_serveur}/move/{game_id}"
+    reponse = requests.post(url, json=coup)
+    reponse.raise_for_status()
+    return reponse.json()
 
 
 # ─────────────────────────────────────────────
-# Main game loop
+# Boucle de jeu principale
 # ─────────────────────────────────────────────
 
-def play(server_url: str, player_name: str) -> None:
+def jouer(url_serveur: str, nom_joueur: str) -> None:
     """
-    Full game loop:
-      1. Register with the server.
-      2. Poll the state until it is our turn.
-      3. Choose the best move with Minimax.
-      4. Send the move and repeat.
+    Boucle de jeu complète :
+      1. S'inscrire auprès du serveur.
+      2. Vérifier l'état jusqu'à ce que ce soit notre tour.
+      3. Choisir le meilleur coup avec Minimax.
+      4. Envoyer le coup et recommencer.
     """
-    # ── Register ──────────────────────────────
-    info = register(server_url, player_name)
+    # ── Inscription ───────────────────────────
+    info = s_inscrire(url_serveur, nom_joueur)
 
-    game_id    = info.get("game_id") or info.get("id")
-    my_index   = info.get("index")   or info.get("player_index", 0)
+    game_id   = info.get("game_id") or info.get("id")
+    mon_index = info.get("index")   or info.get("player_index", 0)
 
-    print(f"[play] game_id={game_id}  my_index={my_index}")
+    print(f"[jeu] game_id={game_id}  mon_index={mon_index}")
 
-    # ── Game loop ─────────────────────────────
+    # ── Boucle de jeu ─────────────────────────
     while True:
-        state = get_state(server_url, game_id)
+        etat = obtenir_etat(url_serveur, game_id)
 
-        # Check if the game is over
-        winner = state.get("winner")
-        if winner is not None:
-            players = state.get("players", [])
-            if winner == my_index:
-                print(f"[play] 🏆  We WIN!  ({players[my_index] if players else my_index})")
+        # Vérifier si la partie est terminée
+        gagnant = etat.get("winner")
+        if gagnant is not None:
+            joueurs = etat.get("players", [])
+            if gagnant == mon_index:
+                print(f"[jeu] 🏆  On GAGNE !  ({joueurs[mon_index] if joueurs else mon_index})")
             else:
-                print(f"[play] ❌  We lose. ({players[winner] if players else winner} wins)")
+                print(f"[jeu] ❌  On perd. ({joueurs[gagnant] if joueurs else gagnant} gagne)")
             break
 
-        current = state.get("current")
-        if current != my_index:
-            # Not our turn – wait and poll again
-            time.sleep(POLL_INTERVAL)
+        courant = etat.get("current")
+        if courant != mon_index:
+            # Ce n'est pas notre tour → on attend et on revérifie
+            time.sleep(INTERVALLE_ATTENTE)
             continue
 
-        # ── Our turn ──────────────────────────
-        print(f"[play] Our turn  color={state.get('color')}")
-        move = choose_move(state, my_index)
+        # ── Notre tour ────────────────────────
+        print(f"[jeu] Notre tour  couleur={etat.get('color')}")
+        coup = choisir_coup(etat, mon_index)
 
-        if move is None:
-            print("[play] ⚠️  No move found – something went wrong.")
+        if coup is None:
+            print("[jeu] ⚠️  Aucun coup trouvé – quelque chose s'est mal passé.")
             break
 
-        print(f"[play] Sending move: {move}")
-        result = send_move(server_url, game_id, move)
-        print(f"[play] Server response: {result}")
+        print(f"[jeu] Envoi du coup : {coup}")
+        resultat = envoyer_coup(url_serveur, game_id, coup)
+        print(f"[jeu] Réponse du serveur : {resultat}")
 
 
 # ─────────────────────────────────────────────
-# Entry point
+# Point d'entrée
 # ─────────────────────────────────────────────
 
 if __name__ == "__main__":
-    server = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_SERVER
-    name   = sys.argv[2] if len(sys.argv) > 2 else DEFAULT_NAME
-    play(server, name)
+    serveur = sys.argv[1] if len(sys.argv) > 1 else SERVEUR_DEFAUT
+    nom     = sys.argv[2] if len(sys.argv) > 2 else NOM_DEFAUT
+    jouer(serveur, nom)
+
